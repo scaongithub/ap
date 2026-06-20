@@ -36,15 +36,29 @@ A machine learning pipeline that predicts the precise probability matrix of a fo
 
 ## 🚀 Quick Start
 
-### 1. Install Dependencies
+### 1. Create & Activate a Virtual Environment
+
+```bash
+# Windows (PowerShell)
+py -3.12 -m venv .venv
+.\\.venv\\Scripts\\Activate.ps1
+
+# macOS / Linux
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 2. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-> **Note:** PyMC v5 requires Python ≥ 3.10. On Windows, you may need Visual C++ Build Tools.
+> **Notes:**
+> - PyMC requires Python >= 3.10.
+> - For the smoothest installs on Windows, prefer Python 3.12 and a virtual environment.
 
-### 2. Predict a Match
+### 3. Predict a Match
 
 ```bash
 # Ensemble prediction (default — best accuracy)
@@ -54,19 +68,29 @@ python predict.py match --home "Spain" --away "Brazil"
 python predict.py match --home "Argentina" --away "France" --model mcmc
 python predict.py match --home "Germany" --away "England" --model xgboost
 
+# World Cup / neutral-venue context
+python predict.py match --home "Netherlands" --away "Sweden" --neutral
+
+# Optional GPU acceleration for XGBoost training (opt-in only)
+python predict.py match --home "Netherlands" --away "Sweden" --model xgboost --neutral --gpu
+
 # Skip chart generation (terminal output only)
 python predict.py match --home "Spain" --away "Brazil" --no-plots
 ```
 
-### 3. Interactive Mode
+### 4. Interactive Mode
 
 ```bash
 # Launch interactive explorer (or just run with no arguments)
 python predict.py interactive
+
+# Enable GPU in interactive mode
+python predict.py interactive --gpu
+
 python predict.py
 ```
 
-### 4. List Teams & Ratings
+### 5. List Teams & Ratings
 
 ```bash
 # See all available teams
@@ -89,6 +113,12 @@ The predictor generates:
 4. **Rich Terminal Summary** — Beautiful formatted output with colored probability bars
 
 All charts are saved to `output/` as high-DPI PNG files.
+
+### CLI Flags for Tournament Context
+
+- `--neutral` / `-n`: treat the fixture as a neutral-venue match (recommended for World Cup matches).
+- `--gpu`: opt-in CUDA acceleration for XGBoost training. CPU is the default.
+- `--no-plots`: skip matplotlib output and print only terminal summary.
 
 ---
 
