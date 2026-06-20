@@ -185,6 +185,8 @@ class EnsemblePredictor:
         home_team: str,
         away_team: str,
         df: pd.DataFrame | None = None,
+        neutral: bool = False,
+        tournament_weight: float = 1.0,
     ) -> tuple[float, float]:
         """Produce blended expected-goals using the optimal weight.
 
@@ -193,6 +195,10 @@ class EnsemblePredictor:
             away_team: Away team name.
             df: Feature-engineered DataFrame (required for XGBoost
                 ``predict_from_teams``).
+            neutral: If True, home advantage is suppressed in both sub-models
+                (e.g. for World Cup group/knockout fixtures at neutral venues).
+            tournament_weight: Competition importance weight forwarded to the
+                XGBoost match-level feature (1.0 = World Cup).
 
         Returns:
             ``(lambda_home, lambda_away)`` blended predictions.
@@ -206,8 +212,13 @@ class EnsemblePredictor:
                 "Call optimize_weight() first."
             )
 
-        mcmc_home, mcmc_away = self._get_mcmc_prediction(home_team, away_team)
-        xgb_home, xgb_away = self._get_xgb_prediction(df, home_team, away_team)
+        mcmc_home, mcmc_away = self._get_mcmc_prediction(
+            home_team, away_team, neutral=neutral
+        )
+        xgb_home, xgb_away = self._get_xgb_prediction(
+            df, home_team, away_team,
+            neutral=neutral, tournament_weight=tournament_weight,
+        )
 
         w = self.optimal_w
         lambda_home = w * xgb_home + (1 - w) * mcmc_home
@@ -224,6 +235,8 @@ class EnsemblePredictor:
         home_team: str,
         away_team: str,
         df: pd.DataFrame | None = None,
+        neutral: bool = False,
+        tournament_weight: float = 1.0,
     ) -> dict:
         """Return a diagnostic dict contrasting each model's predictions.
 
@@ -231,14 +244,21 @@ class EnsemblePredictor:
             home_team: Home team name.
             away_team: Away team name.
             df: Feature-engineered DataFrame (needed for XGBoost).
+            neutral: Whether the fixture is at a neutral venue.
+            tournament_weight: Competition importance weight for XGBoost.
 
         Returns:
             Dictionary with keys ``mcmc``, ``xgboost``, ``ensemble``, each
             mapping to ``{"lambda_home": …, "lambda_away": …}``, plus
             ``optimal_w``.
         """
-        mcmc_home, mcmc_away = self._get_mcmc_prediction(home_team, away_team)
-        xgb_home, xgb_away = self._get_xgb_prediction(df, home_team, away_team)
+        mcmc_home, mcmc_away = self._get_mcmc_prediction(
+            home_team, away_team, neutral=neutral
+        )
+        xgb_home, xgb_away = self._get_xgb_prediction(
+            df, home_team, away_team,
+            neutral=neutral, tournament_weight=tournament_weight,
+        )
 
         comparison: dict = {
             "mcmc": {"lambda_home": mcmc_home, "lambda_away": mcmc_away},
@@ -274,16 +294,14 @@ class EnsemblePredictor:
     # ==================================================================
 
     def _get_mcmc_prediction(
-        self, home_team: str, away_team: str
+        self, home_team: str, away_team: str, neutral: bool = False
     ) -> tuple[float, float]:
-        """Obtain MCMC model predictions, handling common interface variants."""
+        """Obtain MCMC model predictions, forwarding neutral-venue flag."""
         try:
-            result = self.mcmc_model.predict(home_team, away_team)
+            result = self.mcmc_model.predict(home_team, away_team, neutral=neutral)
         except TypeError:
-            # Some MCMC wrappers accept keyword arguments only
-            result = self.mcmc_model.predict(
-                home_team=home_team, away_team=away_team
-            )
+            # Older MCMC wrappers may not accept neutral; fall back gracefully.
+            result = self.mcmc_model.predict(home_team, away_team)
         if isinstance(result, dict):
             return float(result["lambda_home"]), float(result["lambda_away"])
         return float(result[0]), float(result[1])
@@ -293,14 +311,14 @@ class EnsemblePredictor:
         df: pd.DataFrame | None,
         home_team: str,
         away_team: str,
+        neutral: bool = False,
+        tournament_weight: float = 1.0,
     ) -> tuple[float, float]:
-        """Obtain XGBoost predictions, falling back to ``predict_from_teams``."""
-        if df is not None:
-            return self.xgboost_model.predict_from_teams(df, home_team, away_team)
-        # Attempt a direct predict if df unavailable (caller must ensure
-        # the xgboost_model supports this).
+        """Obtain XGBoost predictions, forwarding neutral and tournament context."""
+        target_df = df if df is not None else pd.DataFrame()
         return self.xgboost_model.predict_from_teams(
-            pd.DataFrame(), home_team, away_team
+            target_df, home_team, away_team,
+            neutral=neutral, tournament_weight=tournament_weight,
         )
 
     @staticmethod
