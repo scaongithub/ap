@@ -27,7 +27,7 @@ FEATURE_COLS = [
     "home_goals_conceded_20",
     "home_win_rate_20",
     "home_days_since_last",
-    "home_h2h_wins",
+    "home_h2h_wins_5",
     "away_goals_scored_5",
     "away_goals_conceded_5",
     "away_win_rate_5",
@@ -38,7 +38,7 @@ FEATURE_COLS = [
     "away_goals_conceded_20",
     "away_win_rate_20",
     "away_days_since_last",
-    "away_h2h_wins",
+    "away_h2h_wins_5",
     "tournament_weight",
     "neutral",
 ]
@@ -181,6 +181,8 @@ class XGBoostGoalModel:
         df: pd.DataFrame,
         home_team: str,
         away_team: str,
+        neutral: bool = False,
+        tournament_weight: float = 1.0,
     ) -> tuple[float, float]:
         """Predict expected goals by extracting the latest features for two teams.
 
@@ -192,6 +194,11 @@ class XGBoostGoalModel:
             home_team: Name of the home team (must match values in the
                 ``home_team`` column of *df*).
             away_team: Name of the away team.
+            neutral: Whether the fixture is at a neutral venue. Defaults to
+                False; the World Cup CLI passes True so the ``neutral`` model
+                feature reflects the tournament context.
+            tournament_weight: Importance weight of the fixture's competition
+                (1.0 = World Cup). Drives the ``tournament_weight`` feature.
 
         Returns:
             ``(lambda_home, lambda_away)`` predicted expected goals.
@@ -201,7 +208,13 @@ class XGBoostGoalModel:
         """
         self._check_fitted()
 
-        features = self._extract_latest_features(df, home_team, away_team)
+        features = self._extract_latest_features(
+            df,
+            home_team,
+            away_team,
+            neutral=neutral,
+            tournament_weight=tournament_weight,
+        )
         return self.predict(features)
 
     # ------------------------------------------------------------------
@@ -351,6 +364,8 @@ class XGBoostGoalModel:
         df: pd.DataFrame,
         home_team: str,
         away_team: str,
+        neutral: bool = False,
+        tournament_weight: float = 1.0,
     ) -> dict:
         """Build a feature dict from the most recent stats for each team.
 
@@ -362,6 +377,8 @@ class XGBoostGoalModel:
             df: Feature-engineered DataFrame.
             home_team: Home team name.
             away_team: Away team name.
+            neutral: Whether the fixture is at a neutral venue (World Cup).
+            tournament_weight: Competition importance weight for the fixture.
 
         Returns:
             Dictionary of feature values keyed by ``FEATURE_COLS``.
@@ -397,7 +414,7 @@ class XGBoostGoalModel:
                     f"away_win_rate_{window}", 0.0
                 )
             features["home_days_since_last"] = last.get("away_days_since_last", 0.0)
-            features["home_h2h_wins"] = last.get("away_h2h_wins", 0.0)
+            features["home_h2h_wins_5"] = last.get("away_h2h_wins_5", 0.0)
         else:
             last = home_rows.iloc[-1]
             for window in [5, 10, 20]:
@@ -411,7 +428,7 @@ class XGBoostGoalModel:
                     f"home_win_rate_{window}", 0.0
                 )
             features["home_days_since_last"] = last.get("home_days_since_last", 0.0)
-            features["home_h2h_wins"] = last.get("home_h2h_wins", 0.0)
+            features["home_h2h_wins_5"] = last.get("home_h2h_wins_5", 0.0)
 
         # --- Away team features ---
         away_rows = df[df["away_team"] == away_team]
@@ -433,7 +450,7 @@ class XGBoostGoalModel:
                     f"home_win_rate_{window}", 0.0
                 )
             features["away_days_since_last"] = last.get("home_days_since_last", 0.0)
-            features["away_h2h_wins"] = last.get("home_h2h_wins", 0.0)
+            features["away_h2h_wins_5"] = last.get("home_h2h_wins_5", 0.0)
         else:
             last = away_rows.iloc[-1]
             for window in [5, 10, 20]:
@@ -447,10 +464,12 @@ class XGBoostGoalModel:
                     f"away_win_rate_{window}", 0.0
                 )
             features["away_days_since_last"] = last.get("away_days_since_last", 0.0)
-            features["away_h2h_wins"] = last.get("away_h2h_wins", 0.0)
+            features["away_h2h_wins_5"] = last.get("away_h2h_wins_5", 0.0)
 
-        # --- Match-level features (use defaults when unknown) ---
-        features["tournament_weight"] = 1.0
-        features["neutral"] = 0.0
+        # --- Match-level features ---
+        # Default to World Cup context (neutral venue, max tournament weight)
+        # when the caller does not override, since this tool targets the WC.
+        features["tournament_weight"] = tournament_weight
+        features["neutral"] = float(neutral)
 
         return features
