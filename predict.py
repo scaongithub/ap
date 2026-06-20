@@ -114,7 +114,7 @@ def _load_pipeline(model_choice: str = "ensemble") -> dict:
 
 
 def _predict_match(home_team: str, away_team: str, model: str = "ensemble",
-                   show_plots: bool = True) -> None:
+                   show_plots: bool = True, neutral: bool = False) -> None:
     """Run prediction for a single match and display results."""
     from src.poisson_matrix import build_score_matrix, get_outcome_probabilities, get_top_scores
     from src.visualize import plot_all, render_rich_summary
@@ -126,7 +126,8 @@ def _predict_match(home_team: str, away_team: str, model: str = "ensemble",
     away_team = _resolve_team(away_team, state["team_list"])
 
     console.print(Panel(
-        f"[bold white]{home_team}[/bold white] 🏠  vs  ✈️  [bold white]{away_team}[/bold white]",
+        f"[bold white]{home_team}[/bold white] 🏠  vs  ✈️  [bold white]{away_team}[/bold white]"
+        + ("  [dim](neutral venue)[/dim]" if neutral else ""),
         title="[bold cyan]Match Prediction[/bold cyan]",
         style="cyan",
         padding=(1, 4),
@@ -137,7 +138,8 @@ def _predict_match(home_team: str, away_team: str, model: str = "ensemble",
 
     if model == "ensemble" and state.get("ensemble"):
         comparison = state["ensemble"].get_model_comparison(
-            home_team, away_team, df=state["feat_df"]
+            home_team, away_team, df=state["feat_df"],
+            neutral=neutral, tournament_weight=1.0 if neutral else 0.6,
         )
         lambda_home = comparison["ensemble"]["lambda_home"]
         lambda_away = comparison["ensemble"]["lambda_away"]
@@ -154,18 +156,23 @@ def _predict_match(home_team: str, away_team: str, model: str = "ensemble",
             )
 
     elif model == "mcmc" and state.get("mcmc_model"):
-        lambda_home, lambda_away = state["mcmc_model"].predict(home_team, away_team)
+        lambda_home, lambda_away = state["mcmc_model"].predict(
+            home_team, away_team, neutral=neutral
+        )
         model_info = {"MCMC": (lambda_home, lambda_away)}
 
     elif model == "xgboost" and state.get("xgb_model"):
         lambda_home, lambda_away = state["xgb_model"].predict_from_teams(
-            state["feat_df"], home_team, away_team
+            state["feat_df"], home_team, away_team,
+            neutral=neutral, tournament_weight=1.0 if neutral else 0.6,
         )
         model_info = {"XGBoost": (lambda_home, lambda_away)}
 
     else:
         # Fallback to Dixon-Coles
-        lambda_home, lambda_away = state["dc_model"].predict(home_team, away_team)
+        lambda_home, lambda_away = state["dc_model"].predict(
+            home_team, away_team, neutral=neutral
+        )
         model_info = {"Dixon-Coles": (lambda_home, lambda_away)}
 
     # ── Build Poisson matrix and extract results ───────────────────
@@ -225,6 +232,10 @@ def match(
         help="Prediction model: mcmc, xgboost, or ensemble",
     ),
     no_plots: bool = typer.Option(False, "--no-plots", help="Skip matplotlib chart generation"),
+    neutral: bool = typer.Option(
+        False, "--neutral", "-n",
+        help="Treat as a neutral-venue fixture (e.g. World Cup). Removes home advantage.",
+    ),
     date: Optional[str] = typer.Option(None, "--date", "-d", help="Match date (reserved for future use)"),
 ):
     """Predict the score probabilities for a specific match."""
@@ -233,7 +244,7 @@ def match(
         console.print(f"[red]❌ Invalid model '{model}'. Choose from: mcmc, xgboost, ensemble[/red]")
         raise typer.Exit(1)
 
-    _predict_match(home, away, model=model, show_plots=not no_plots)
+    _predict_match(home, away, model=model, show_plots=not no_plots, neutral=neutral)
 
 
 @app.command()
@@ -347,9 +358,16 @@ def interactive():
             default="y",
         )
 
+        neutral_answer = Prompt.ask(
+            "Neutral venue? (e.g. World Cup fixture)",
+            choices=["y", "n"],
+            default="y",  # default to neutral since this tool targets the WC
+        )
+
         try:
             _predict_match(home, away, model=model_choice,
-                          show_plots=(show_plots_answer == "y"))
+                          show_plots=(show_plots_answer == "y"),
+                          neutral=(neutral_answer == "y"))
         except SystemExit:
             continue  # typer.Exit was raised due to invalid team — keep looping
         except Exception as e:
