@@ -195,13 +195,18 @@ class MCMCModel:
 
         return self
 
-    def predict(self, home_team: str, away_team: str) -> tuple[float, float]:
+    def predict(
+        self, home_team: str, away_team: str, neutral: bool = False
+    ) -> tuple[float, float]:
         """
         Predict expected goals using posterior means.
 
         Args:
             home_team: Name of the home team.
             away_team: Name of the away team.
+            neutral: If True, the match is at a neutral venue (e.g. a World
+                Cup fixture). The posterior home-advantage term is dropped
+                because the home/away label is arbitrary at neutral sites.
 
         Returns:
             Tuple of (lambda_home, lambda_away) representing the expected
@@ -226,7 +231,8 @@ class MCMCModel:
         defense_home = self.posterior_means["defense"][home_i]
         attack_away = self.posterior_means["attack"][away_i]
         defense_away = self.posterior_means["defense"][away_i]
-        home_adv = self.posterior_means["home_adv"]
+        # Drop home advantage on neutral ground (World Cup default).
+        home_adv = 0.0 if neutral else self.posterior_means["home_adv"]
 
         lambda_home = np.exp(attack_home + defense_away + home_adv)
         lambda_away = np.exp(attack_away + defense_home)

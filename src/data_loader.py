@@ -152,6 +152,13 @@ def preprocess(df: pd.DataFrame, start_year: int = 2018) -> pd.DataFrame:
         lambda t: _match_tournament_weight(t)
     )
 
+    # Combined sample weight ---------------------------------------------------
+    # Multiply time decay by tournament importance so that recent *and*
+    # competitive matches (World Cup, continental cups) dominate the fit, while
+    # stale friendlies contribute little signal. Models that support weighting
+    # (e.g. Dixon-Coles) consume this column directly.
+    df["sample_weight"] = df["time_weight"] * df["tournament_weight"]
+
     # Sort chronologically -----------------------------------------------------
     df = df.sort_values("date").reset_index(drop=True)
     print(f"[preprocess] Done – {len(df):,} matches ready")
@@ -335,6 +342,7 @@ def engineer_features(
         "neutral",
         "time_weight",
         "tournament_weight",
+        "sample_weight",
     ]
     feature_cols = sorted(
         [c for c in df.columns if c not in base_cols and c not in ("city", "country", "days_ago")]

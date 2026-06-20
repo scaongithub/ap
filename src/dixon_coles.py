@@ -98,16 +98,19 @@ def dc_log_likelihood(
     log_lik_home = poisson.logpmf(home_goals, lambda_home)
     log_lik_away = poisson.logpmf(away_goals, lambda_away)
 
-    # Dixon-Coles tau correction (vectorized)
+    # Dixon-Coles tau correction (fully vectorized via boolean masks).
+    # tau only deviates from 1.0 for the four low-scoring outcomes, so we
+    # avoid a per-match Python loop (which is O(n) interpreted overhead on
+    # every optimizer iteration) and instead assign each case with a mask.
     tau_values = np.ones(len(home_goals))
-    for i in range(len(home_goals)):
-        tau_values[i] = tau(
-            int(home_goals[i]),
-            int(away_goals[i]),
-            lambda_home[i],
-            lambda_away[i],
-            rho_val,
-        )
+    mask_00 = (home_goals == 0) & (away_goals == 0)
+    mask_01 = (home_goals == 0) & (away_goals == 1)
+    mask_10 = (home_goals == 1) & (away_goals == 0)
+    mask_11 = (home_goals == 1) & (away_goals == 1)
+    tau_values[mask_00] = 1.0 - lambda_home[mask_00] * lambda_away[mask_00] * rho_val
+    tau_values[mask_01] = 1.0 + lambda_home[mask_01] * rho_val
+    tau_values[mask_10] = 1.0 + lambda_away[mask_10] * rho_val
+    tau_values[mask_11] = 1.0 - rho_val
 
     # Clamp tau to avoid log(0) or log(negative)
     tau_values = np.clip(tau_values, 1e-10, None)
@@ -191,7 +194,11 @@ class DixonColesModel:
         away_idx = df["away_team"].map(self.team_to_idx).values
         home_goals = df["home_score"].values.astype(float)
         away_goals = df["away_score"].values.astype(float)
-        weights = df["time_weight"].values.astype(float)
+        # Prefer the combined sample weight (time decay x tournament importance)
+        # when available so that World Cup / competitive matches dominate the
+        # fit over low-signal friendlies. Falls back to pure time decay.
+        weight_col = "sample_weight" if "sample_weight" in df.columns else "time_weight"
+        weights = df[weight_col].values.astype(float)
 
         # Initial parameter guesses
         # attack_i = 0 for all teams, defense_i = 0, home_adv = 0.25, rho = -0.03
@@ -257,13 +264,19 @@ class DixonColesModel:
 
         return self
 
-    def predict(self, home_team: str, away_team: str) -> tuple[float, float]:
+    def predict(
+        self, home_team: str, away_team: str, neutral: bool = False
+    ) -> tuple[float, float]:
         """
         Predict expected goals for a match between two teams.
 
         Args:
             home_team: Name of the home team.
             away_team: Name of the away team.
+            neutral: If True, the match is played at a neutral venue (e.g. a
+                World Cup fixture). The home-advantage term is dropped because
+                the home/away designation is arbitrary at neutral sites, so
+                applying it would systematically bias the listed home team.
 
         Returns:
             Tuple of (lambda_home, lambda_away) representing the expected
@@ -284,7 +297,8 @@ class DixonColesModel:
         defense_home = self.params["defense"][home_team]
         attack_away = self.params["attack"][away_team]
         defense_away = self.params["defense"][away_team]
-        home_adv = self.params["home_adv"]
+        # Zero out home advantage on neutral ground (World Cup default).
+        home_adv = 0.0 if neutral else self.params["home_adv"]
 
         lambda_home = np.exp(attack_home + defense_away + home_adv)
         lambda_away = np.exp(attack_away + defense_home)
