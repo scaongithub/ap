@@ -321,6 +321,7 @@ class XGBoostGoalModel:
         X_val: np.ndarray,
         y_val: np.ndarray,
         label: str,
+        use_gpu: bool = False,
     ) -> tuple[XGBRegressor, dict]:
         """Run grid search with TimeSeriesSplit CV, then retrain on full training set.
 
@@ -331,11 +332,14 @@ class XGBoostGoalModel:
             y_val: Validation target array.
             label: Human-readable label for progress messages (``"home"``
                 or ``"away"``).
+            use_gpu: If True, use CUDA for XGBoost tree building.
 
         Returns:
             ``(best_model, best_params)`` — the fitted model and its
             hyperparameters.
         """
+        device = "cuda" if use_gpu else "cpu"
+
         param_grid = {
             "max_depth": [3, 5, 7],
             "learning_rate": [0.01, 0.05, 0.1],
