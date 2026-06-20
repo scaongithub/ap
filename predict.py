@@ -166,21 +166,30 @@ def _predict_match(home_team: str, away_team: str, model: str = "ensemble",
         lambda_home, lambda_away = state["mcmc_model"].predict(
             home_team, away_team, neutral=neutral
         )
-        model_info = {"MCMC": (lambda_home, lambda_away)}
+        model_info = {
+            "MCMC": {"lambda_home": lambda_home, "lambda_away": lambda_away}
+        }
 
     elif model == "xgboost" and state.get("xgb_model"):
         lambda_home, lambda_away = state["xgb_model"].predict_from_teams(
             state["feat_df"], home_team, away_team,
             neutral=neutral, tournament_weight=1.0 if neutral else 0.6,
         )
-        model_info = {"XGBoost": (lambda_home, lambda_away)}
+        model_info = {
+            "XGBoost": {"lambda_home": lambda_home, "lambda_away": lambda_away}
+        }
 
     else:
         # Fallback to Dixon-Coles
         lambda_home, lambda_away = state["dc_model"].predict(
             home_team, away_team, neutral=neutral
         )
-        model_info = {"Dixon-Coles": (lambda_home, lambda_away)}
+        model_info = {
+            "Dixon-Coles": {
+                "lambda_home": lambda_home,
+                "lambda_away": lambda_away,
+            }
+        }
 
     # ── Build Poisson matrix and extract results ───────────────────
     matrix = build_score_matrix(lambda_home, lambda_away)
