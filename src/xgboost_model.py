@@ -7,12 +7,31 @@ via TimeSeriesSplit cross-validation and feature importance analysis.
 """
 
 import itertools
+import subprocess
 
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import TimeSeriesSplit
 from xgboost import XGBRegressor
+
+
+def _cuda_available() -> bool:
+    """Return True if an NVIDIA GPU is reachable via nvidia-smi.
+
+    XGBoost's CUDA backend requires the CUDA toolkit and an NVIDIA GPU.
+    We probe nvidia-smi rather than importing a heavy CUDA library so that
+    the check is instant and has zero install cost.
+    """
+    try:
+        result = subprocess.run(
+            ["nvidia-smi"],
+            capture_output=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except Exception:  # binary not found or timed out
+        return False
 
 
 # Feature columns used by the model.
@@ -58,9 +77,18 @@ class XGBoostGoalModel:
         best_params_away: Best hyperparameters for the away model.
         feature_importances_home: Feature importances from the home model.
         feature_importances_away: Feature importances from the away model.
+        use_gpu: Whether CUDA acceleration is active.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, use_gpu: bool = False) -> None:
+        """Initialise the model.
+
+        Args:
+            use_gpu: Defaults to False (CPU). Pass True to run tree building
+                on an NVIDIA GPU via CUDA. If True but no usable GPU is found,
+                the model warns and transparently falls back to CPU rather
+                than crashing mid-pipeline.
+        """
         self.home_model: XGBRegressor | None = None
         self.away_model: XGBRegressor | None = None
         self.best_params_home: dict | None = None
@@ -68,6 +96,21 @@ class XGBoostGoalModel:
         self.feature_importances_home: np.ndarray | None = None
         self.feature_importances_away: np.ndarray | None = None
         self._is_fitted = False
+
+        # CPU by default; only attempt CUDA when explicitly requested. When a
+        # GPU is requested we verify it exists so a missing GPU degrades to a
+        # warning + CPU fallback instead of an opaque XGBoost runtime error.
+        if use_gpu and not _cuda_available():
+            print(
+                "[XGBoost] ⚠ GPU requested but no CUDA device detected "
+                "(nvidia-smi unavailable). Falling back to CPU."
+            )
+            self.use_gpu = False
+        else:
+            self.use_gpu = use_gpu
+
+        device_label = "cuda (GPU)" if self.use_gpu else "cpu"
+        print(f"[XGBoost] Device: {device_label}")
 
     # ------------------------------------------------------------------
     # Fitting
@@ -119,6 +162,7 @@ class XGBoostGoalModel:
             X_val,
             val["home_score"].values,
             label="home",
+            use_gpu=self.use_gpu,
         )
         self.feature_importances_home = self.home_model.feature_importances_
 
@@ -130,6 +174,7 @@ class XGBoostGoalModel:
             X_val,
             val["away_score"].values,
             label="away",
+            use_gpu=self.use_gpu,
         )
         self.feature_importances_away = self.away_model.feature_importances_
 
@@ -321,6 +366,7 @@ class XGBoostGoalModel:
                     max_depth=params["max_depth"],
                     learning_rate=params["learning_rate"],
                     n_estimators=params["n_estimators"],
+                    device=device,  # 'cuda' for GPU, 'cpu' otherwise
                     random_state=42,
                     verbosity=0,
                 )
@@ -345,6 +391,7 @@ class XGBoostGoalModel:
             max_depth=best_params["max_depth"],
             learning_rate=best_params["learning_rate"],
             n_estimators=best_params["n_estimators"],
+            device=device,  # 'cuda' for GPU, 'cpu' otherwise
             random_state=42,
             verbosity=0,
         )

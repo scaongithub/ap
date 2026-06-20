@@ -39,7 +39,7 @@ console = Console()
 _state: dict = {}
 
 
-def _load_pipeline(model_choice: str = "ensemble") -> dict:
+def _load_pipeline(model_choice: str = "ensemble", use_gpu: bool = False) -> dict:
     """Load data and fit models. Caches across calls within the same run."""
     if _state.get("loaded"):
         return _state
@@ -87,7 +87,7 @@ def _load_pipeline(model_choice: str = "ensemble") -> dict:
     # ── XGBoost ────────────────────────────────────────────────────
     if model_choice in ("xgboost", "ensemble"):
         with console.status("[bold green]Training XGBoost models…"):
-            xgb_model = XGBoostGoalModel()
+            xgb_model = XGBoostGoalModel(use_gpu=use_gpu)
             xgb_model.fit(feat_df)
         console.print("  ✅ XGBoost model fitted\n")
         _state["xgb_model"] = xgb_model
@@ -114,12 +114,13 @@ def _load_pipeline(model_choice: str = "ensemble") -> dict:
 
 
 def _predict_match(home_team: str, away_team: str, model: str = "ensemble",
-                   show_plots: bool = True, neutral: bool = False) -> None:
+                   show_plots: bool = True, neutral: bool = False,
+                   use_gpu: bool = False) -> None:
     """Run prediction for a single match and display results."""
     from src.poisson_matrix import build_score_matrix, get_outcome_probabilities, get_top_scores
     from src.visualize import plot_all, render_rich_summary
 
-    state = _load_pipeline(model)
+    state = _load_pipeline(model, use_gpu=use_gpu)
 
     # ── Resolve team names (case-insensitive fuzzy match) ──────────
     home_team = _resolve_team(home_team, state["team_list"])
@@ -236,6 +237,10 @@ def match(
         False, "--neutral", "-n",
         help="Treat as a neutral-venue fixture (e.g. World Cup). Removes home advantage.",
     ),
+    gpu: bool = typer.Option(
+        False, "--gpu",
+        help="Train XGBoost on an NVIDIA GPU (CUDA). Defaults to CPU; falls back to CPU if no GPU is found.",
+    ),
     date: Optional[str] = typer.Option(None, "--date", "-d", help="Match date (reserved for future use)"),
 ):
     """Predict the score probabilities for a specific match."""
@@ -244,7 +249,8 @@ def match(
         console.print(f"[red]❌ Invalid model '{model}'. Choose from: mcmc, xgboost, ensemble[/red]")
         raise typer.Exit(1)
 
-    _predict_match(home, away, model=model, show_plots=not no_plots, neutral=neutral)
+    _predict_match(home, away, model=model, show_plots=not no_plots,
+                   neutral=neutral, use_gpu=gpu)
 
 
 @app.command()
@@ -320,7 +326,12 @@ def ratings(
 
 
 @app.command()
-def interactive():
+def interactive(
+    gpu: bool = typer.Option(
+        False, "--gpu",
+        help="Train XGBoost on an NVIDIA GPU (CUDA). Defaults to CPU.",
+    ),
+):
     """Launch an interactive exploration loop."""
     console.print(Panel(
         "[bold cyan]⚽ Interactive Match Predictor[/bold cyan]\n\n"
@@ -337,7 +348,7 @@ def interactive():
     )
 
     # Load pipeline
-    _load_pipeline(model_choice)
+    _load_pipeline(model_choice, use_gpu=gpu)
     team_list = _state["team_list"]
 
     while True:
@@ -367,7 +378,8 @@ def interactive():
         try:
             _predict_match(home, away, model=model_choice,
                           show_plots=(show_plots_answer == "y"),
-                          neutral=(neutral_answer == "y"))
+                          neutral=(neutral_answer == "y"),
+                          use_gpu=gpu)
         except SystemExit:
             continue  # typer.Exit was raised due to invalid team — keep looping
         except Exception as e:
