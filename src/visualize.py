@@ -12,14 +12,14 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-import matplotlib
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-import matplotlib.patheffects as pe
+# matplotlib and seaborn are imported lazily inside plot_all() so that
+# `--no-plots` mode works even when the packages are not installed.
+# Only render_rich_summary() is called in no-plots mode, and it only
+# needs rich + numpy — neither requires matplotlib.
 import numpy as np
-import seaborn as sns
 
 if TYPE_CHECKING:
+    import matplotlib
     import matplotlib.figure
 
 # Attempt to import rich — graceful degradation if absent
@@ -45,20 +45,30 @@ _ACCENT_DRAW = "#f39c12"  # amber
 _ACCENT_AWAY = "#e74c3c"  # coral red
 _FONT_FAMILY = "Segoe UI"
 
-# Pre-configure matplotlib defaults for a premium dark feel
-matplotlib.rcParams.update(
-    {
-        "font.family": _FONT_FAMILY,
-        "text.color": _TEXT_COLOR,
-        "axes.labelcolor": _TEXT_COLOR,
-        "xtick.color": _TEXT_COLOR,
-        "ytick.color": _TEXT_COLOR,
-        "figure.facecolor": _BG_DARK,
-        "axes.facecolor": _BG_AXES,
-        "savefig.facecolor": _BG_DARK,
-        "savefig.edgecolor": _BG_DARK,
-    }
-)
+
+def _configure_mpl() -> None:
+    """Import matplotlib/seaborn and apply shared dark-theme defaults.
+
+    Called once at the start of every plot function so the imports only
+    happen when charts are actually requested (i.e. not with --no-plots).
+    """
+    import matplotlib  # noqa: PLC0415
+    import matplotlib.pyplot  # noqa: PLC0415 – ensure pyplot is loaded
+    import seaborn  # noqa: PLC0415 – ensure seaborn is loaded
+
+    matplotlib.rcParams.update(
+        {
+            "font.family": _FONT_FAMILY,
+            "text.color": _TEXT_COLOR,
+            "axes.labelcolor": _TEXT_COLOR,
+            "xtick.color": _TEXT_COLOR,
+            "ytick.color": _TEXT_COLOR,
+            "figure.facecolor": _BG_DARK,
+            "axes.facecolor": _BG_AXES,
+            "savefig.facecolor": _BG_DARK,
+            "savefig.edgecolor": _BG_DARK,
+        }
+    )
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -90,6 +100,11 @@ def plot_score_heatmap(
     matplotlib.figure.Figure
         The generated matplotlib Figure.
     """
+    import matplotlib.pyplot as plt  # lazy — only when charts are needed
+    import matplotlib.colors as mcolors
+    import matplotlib.patheffects as pe
+    import seaborn as sns
+    _configure_mpl()
     plt.style.use("dark_background")
     n = matrix.shape[0]
 
@@ -197,6 +212,9 @@ def plot_outcome_bars(
     matplotlib.figure.Figure
         The generated matplotlib Figure.
     """
+    import matplotlib.pyplot as plt  # lazy — only when charts are needed
+    import matplotlib.patheffects as pe
+    _configure_mpl()
     plt.style.use("dark_background")
 
     labels = [f"Home Win ({home_team})", "Draw", f"Away Win ({away_team})"]
@@ -290,6 +308,10 @@ def plot_top_scores(
     matplotlib.figure.Figure
         The generated matplotlib Figure.
     """
+    import matplotlib.pyplot as plt  # lazy — only when charts are needed
+    import matplotlib.colors as mcolors
+    import matplotlib.patheffects as pe
+    _configure_mpl()
     plt.style.use("dark_background")
 
     labels = [f"{h} - {a}" for h, a, _ in top_scores]
