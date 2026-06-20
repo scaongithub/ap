@@ -67,12 +67,18 @@ def _load_pipeline(model_choice: str = "ensemble", use_gpu: bool = False) -> dic
     _state["feat_df"] = feat_df
     _state["team_list"] = get_team_list(clean_df)
 
-    # ── Dixon-Coles (always fitted — lightweight) ──────────────────
-    with console.status("[bold green]Fitting Dixon-Coles model…"):
-        dc_model = DixonColesModel()
-        dc_model.fit(clean_df)
-    console.print("  ✅ Dixon-Coles model fitted\n")
-    _state["dc_model"] = dc_model
+    # ── Dixon-Coles ────────────────────────────────────────────────
+    # Fit only when needed: MCMC/ensemble runs use it directly (and
+    # ensemble also shows it in model comparison), while XGBoost-only
+    # predictions do not consume it.
+    if model_choice in ("mcmc", "ensemble"):
+        with console.status("[bold green]Fitting Dixon-Coles model…"):
+            dc_model = DixonColesModel()
+            dc_model.fit(clean_df)
+        console.print("  ✅ Dixon-Coles model fitted\n")
+        _state["dc_model"] = dc_model
+    else:
+        _state["dc_model"] = None
 
     # ── MCMC ───────────────────────────────────────────────────────
     if model_choice in ("mcmc", "ensemble"):
